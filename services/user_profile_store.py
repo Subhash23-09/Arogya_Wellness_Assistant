@@ -1,7 +1,10 @@
 import json
 import os
 
-FILE = "healthbackend/storage/user_profiles.json"
+# Base dir: .../healthbackend
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+STORAGE_DIR = os.path.join(BASE_DIR, "storage")
+FILE = os.path.join(STORAGE_DIR, "user_profiles.json")
 
 
 def _load():
