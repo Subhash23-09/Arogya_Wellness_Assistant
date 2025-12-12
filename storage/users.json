@@ -1,0 +1,31 @@
+[
+  {
+    "username": "user123",
+    "password": "pass123"
+  },
+  {
+    "username": "demo",
+    "password": "demo123"
+  },
+  {
+    "username": "Subhash",
+    "password": "subhashdemo456"
+  },
+  {
+    "username": "kavin",
+    "password": "kavin456"
+  },
+  {
+    "username": "venkata_arjun",
+    "password": "12345678"
+  },
+  {
+    "username": "arjun05",
+    "password": "12345678"
+  },
+  {
+    "username": "venkataarjun",
+    "password": "87654321",
+    "full_name": "Rankela Venkata Arjun"
+  }
+]
