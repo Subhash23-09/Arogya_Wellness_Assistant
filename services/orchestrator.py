@@ -5,19 +5,19 @@ from typing import AsyncGenerator, Dict, Any
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
 
-from healthbackend.services.api_key_pool import (
+from services.api_key_pool import (
     get_next_key,
     mark_key_quota_exceeded,
 )
-from healthbackend.services.agents import (
+from services.agents import (
     symptom_agent,
     lifestyle_agent,
     diet_agent,
     fitness_agent,
 )
-from healthbackend.services.history_store import save_history
-from healthbackend.services.memory import get_shared_memory, reset_memory
-from healthbackend.config.settings import GROQ_MODEL_NAME
+from services.history_store import save_history
+from services.memory import get_shared_memory, reset_memory
+from config.settings import GROQ_MODEL_NAME
 
 
 # ---------------------------------------------------------------------
