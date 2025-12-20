@@ -84,6 +84,8 @@ Health-related topics include: symptoms, diseases, pain, medical conditions, nut
         t = text.lower()
         health_keywords = [
             "symptom",
+            "report",
+            "result",
             "fever",
             "cough",
             "pain",
