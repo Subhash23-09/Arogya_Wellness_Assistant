@@ -1,6 +1,10 @@
 import asyncio
 import json
 import logging
+import io
+from PIL import Image
+import pytesseract
+import pdfplumber
 
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
@@ -183,12 +187,15 @@ def register():
 # -------------------------
 @app.route("/health-assist", methods=["POST"])
 def health_assist():
-    data = request.get_json()
+    data = request.get_json() or {}
 
-    if not data or "symptoms" not in data:
+    if "symptoms" not in data:
         raise InputError("Symptoms required")
 
-    symptoms = data["symptoms"].strip()
+    symptoms = (data.get("symptoms") or "").strip()
+    medical_report = (data.get("medical_report") or "").strip()   # ← UPDATED
+    user_id = data.get("user_id", "guest")
+
     if not _is_health_query(symptoms):
         return (
             jsonify(
@@ -202,11 +209,12 @@ def health_assist():
     result = asyncio.run(
         orchestrate(
             symptoms,
-            data.get("medical_report"),
-            data.get("user_id", "guest"),
+            medical_report,   # ← UPDATED
+            user_id,
         )
     )
     return jsonify(result)
+
 
 
 # -------------------------
@@ -289,12 +297,15 @@ def follow_up():
                 "about an existing wellness plan. Use the provided summary and "
                 "recommendations as context. You may clarify, reorder, or restate "
                 "information, but do NOT diagnose, do NOT prescribe medicines, and "
-                "always remind the user to follow their doctor's advice."
+                "always remind the user to follow their doctor's advice.\n\n"
+                "Always format your answer in Markdown. Use **bold** section headings "
+                "and bullet lists with blank lines between items."
             )
         ),
         HumanMessage(content=context_text),
         HumanMessage(content=f"User follow-up question: {question}"),
     ]
+
 
     result = llm.invoke(messages)
     return jsonify({"answer": result.content})
@@ -458,6 +469,32 @@ def get_youtube_recommendations():
 @app.route("/", methods=["GET"])
 def welcome_health():
     return "Welcome to Health & Diet Care"
+
+
+# ... existing code ...
+
+@app.route("/upload-report", methods=["POST"])
+def upload_report():
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    f = request.files["file"]
+
+    # Basic type check
+    filename = (f.filename or "").lower()
+    try:
+        if filename.endswith(".pdf"):
+            text = ""
+            with pdfplumber.open(f) as pdf:
+                for page in pdf.pages:
+                    text += (page.extract_text() or "") + "\n"
+        else:
+            img = Image.open(io.BytesIO(f.read()))
+            text = pytesseract.image_to_string(img)
+    except Exception as e:
+        return jsonify({"error": f"Failed to read report: {str(e)}"}), 500
+
+    return jsonify({"text": text.strip()})
 
 
 # -------------------------
