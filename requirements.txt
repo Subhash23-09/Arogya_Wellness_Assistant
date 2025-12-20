@@ -7,3 +7,8 @@ flask-cors==4.0.0
 langchain>=0.3.0
 requests>=2.31.0
 gunicorn
+
+
+pdfplumber          # PDF text extraction [web:585]
+pytesseract         # OCR wrapper for Tesseract [web:577]
+Pillow              
