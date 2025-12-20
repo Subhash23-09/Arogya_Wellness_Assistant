@@ -9,17 +9,15 @@ from services.api_key_pool import get_next_key, mark_key_quota_exceeded
 
 def _make_llm_with_key():
     """
-    Create a Grok chat model using the next available API key.
+    Create a Groq chat model using the next available API key.
 
     Returns:
         tuple[ChatOpenAI, str]: (llm instance, api_key used)
     """
-    # Pick the next key from the pool (handles round‑robin and cooldown logic)
     api_key = get_next_key()
 
-    # Instantiate the Grok chat model with that key (OpenAI‑compatible)
     llm = ChatOpenAI(
-        model=GROQ_MODEL_NAME,          # e.g. "grok-3" or "grok-3-fast"
+        model=GROQ_MODEL_NAME,
         api_key=api_key,
         base_url="https://api.groq.com/openai/v1",
         temperature=0.0,
@@ -38,13 +36,14 @@ def _memory():
 # ------------------------------------------------------------
 # SYMPTOM AGENT
 # ------------------------------------------------------------
-async def symptom_agent(symptoms: str) -> str:
+async def symptom_agent(symptoms: str, report: str) -> str:
     """
-    Analyze raw symptoms and comment on possible severity / urgency.
+    Analyze raw symptoms (and, if available, medical report text) and
+    comment on possible severity / urgency.
+
     Does NOT diagnose; only suggests when to see a doctor or seek emergency care.
     """
     memory = _memory()
-    # Load previous messages so this agent can see context from other agents
     history = memory.load_memory_variables({})["chat_history"]
 
     # System prompt describes the role and strict safety constraints
@@ -53,12 +52,18 @@ async def symptom_agent(symptoms: str) -> str:
             content=(
                 "You are a safe medical triage assistant. "
                 "You only assess severity and suggest if the user should see a doctor. "
-                "Do not provide diagnoses or prescriptions."
+                "Do not provide diagnoses or prescriptions.\n\n"
+                "You may consider structured information from a lab/medical report "
+                "if it is provided, but still MUST NOT diagnose or prescribe."
             )
         ),
     ] + history + [
         HumanMessage(
-            content=f"Analyze these symptoms and their possible severity: {symptoms}"
+            content=(
+                "Analyze these symptoms and their possible severity.\n\n"
+                f"Symptoms:\n{symptoms}\n\n"
+                f"Medical report text (may be empty):\n{report}"
+            )
         )
     ]
 
@@ -66,13 +71,12 @@ async def symptom_agent(symptoms: str) -> str:
     try:
         result = await llm.ainvoke(messages)
     except Exception:
-        # This key may have hit quota or another hard failure → mark & retry once
         mark_key_quota_exceeded(key)
         llm, key = _make_llm_with_key()
         result = await llm.ainvoke(messages)
 
     memory.save_context(
-        {"input": f"[symptom_agent] {symptoms}"},
+        {"input": f"[symptom_agent] symptoms={symptoms} report_snippet={report[:120]}"},
         {"output": result.content},
     )
     return result.content
@@ -81,17 +85,23 @@ async def symptom_agent(symptoms: str) -> str:
 # ------------------------------------------------------------
 # LIFESTYLE AGENT
 # ------------------------------------------------------------
-async def lifestyle_agent(symptoms: str) -> str:
+async def lifestyle_agent(symptoms: str, report: str) -> str:
     """
-    Suggest lifestyle adjustments (sleep, stress, routine) based on symptoms
-    and conversation context. Keeps suggestions generic and safe.
+    Suggest lifestyle adjustments (sleep, stress, routine) based on:
+      - symptoms
+      - optional medical report text
+      - conversation context.
+
+    Keeps suggestions generic and safe.
     """
     memory = _memory()
     history = memory.load_memory_variables({})["chat_history"]
 
     prompt = (
-        f"Given the conversation so far and these symptoms: {symptoms}, "
-        f"suggest lifestyle changes and constraints."
+        "Given the conversation so far, the user's symptoms, and any available "
+        "medical report text, suggest lifestyle changes and constraints.\n\n"
+        f"Symptoms:\n{symptoms}\n\n"
+        f"Medical report text (may be empty):\n{report}"
     )
 
     messages = [
@@ -99,7 +109,10 @@ async def lifestyle_agent(symptoms: str) -> str:
             content=(
                 "You are a lifestyle coach collaborating with other agents. "
                 "Suggest simple lifestyle habits, sleep hygiene, stress management, "
-                "and daily routine tips. Keep suggestions safe and generic."
+                "and daily routine tips. Keep suggestions safe and generic.\n\n"
+                "If lab values or diagnoses are mentioned in the report, you may "
+                "reference them in very general language (for example 'elevated "
+                "blood sugar'), but do NOT add new diagnoses or change treatment."
             )
         ),
     ] + history + [HumanMessage(content=prompt)]
@@ -113,7 +126,7 @@ async def lifestyle_agent(symptoms: str) -> str:
         result = await llm.ainvoke(messages)
 
     memory.save_context(
-        {"input": f"[lifestyle_agent] {prompt}"},
+        {"input": f"[lifestyle_agent] {prompt[:160]}"},
         {"output": result.content},
     )
     return result.content
@@ -129,6 +142,7 @@ async def diet_agent(symptoms: str, report: str, lifestyle_notes: str) -> str:
       - optional medical report text
       - output of lifestyle_agent
       - retrieved snippets from local knowledge base (RAG)
+
     The guidance is strictly non‑diagnostic and non‑prescriptive.
     """
     memory = _memory()
@@ -137,10 +151,10 @@ async def diet_agent(symptoms: str, report: str, lifestyle_notes: str) -> str:
     kb = retrieve_context(symptoms)
 
     prompt = (
-        f"User symptoms: {symptoms}\n"
-        f"Relevant medical report text (may be empty): {report}\n"
-        f"Lifestyle information from lifestyle_agent: {lifestyle_notes}\n"
-        f"Evidence / knowledge base snippets: {kb}\n\n"
+        f"User symptoms:\n{symptoms}\n\n"
+        f"Relevant medical report text (may be empty):\n{report}\n\n"
+        f"Lifestyle information from lifestyle_agent:\n{lifestyle_notes}\n\n"
+        f"Evidence / knowledge base snippets:\n{kb}\n\n"
         "Suggest a safe, balanced diet plan. Mention foods to prefer and foods to avoid. "
         "Highlight that this is not a replacement for a dietician or doctor."
     )
@@ -149,7 +163,8 @@ async def diet_agent(symptoms: str, report: str, lifestyle_notes: str) -> str:
         SystemMessage(
             content=(
                 "You are a dietician collaborating with other agents to give general diet guidance. "
-                "Never claim to cure diseases or override a doctor's advice."
+                "Never claim to cure diseases or override a doctor's advice. "
+                "Do not name prescription medicines or doses."
             )
         ),
     ] + history + [HumanMessage(content=prompt)]
@@ -163,7 +178,7 @@ async def diet_agent(symptoms: str, report: str, lifestyle_notes: str) -> str:
         result = await llm.ainvoke(messages)
 
     memory.save_context(
-        {"input": f"[diet_agent] {prompt}"},
+        {"input": f"[diet_agent] {prompt[:160]}"},
         {"output": result.content},
     )
     return result.content
@@ -183,10 +198,11 @@ async def fitness_agent(symptoms: str, diet_notes: str) -> str:
     history = memory.load_memory_variables({})["chat_history"]
 
     prompt = (
-        f"User symptoms: {symptoms}\n"
-        f"Diet constraints from diet_agent: {diet_notes}\n\n"
-        "Recommend only low‑risk, gentle physical activities, "
-        "and clearly tell the user to stop if they feel pain or discomfort."
+        f"User symptoms:\n{symptoms}\n\n"
+        f"Diet constraints from diet_agent:\n{diet_notes}\n\n"
+        "Recommend only low‑risk, gentle physical activities, and clearly tell the "
+        "user to stop if they feel pain or discomfort. Always remind them to talk "
+        "to their doctor before starting or intensifying exercise."
     )
 
     messages = [
@@ -208,7 +224,7 @@ async def fitness_agent(symptoms: str, diet_notes: str) -> str:
         result = await llm.ainvoke(messages)
 
     memory.save_context(
-        {"input": f"[fitness_agent] {prompt}"},
+        {"input": f"[fitness_agent] {prompt[:160]}"},
         {"output": result.content},
     )
     return result.content
