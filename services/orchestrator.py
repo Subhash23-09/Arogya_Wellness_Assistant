@@ -71,7 +71,7 @@ async def orchestrate(
     agent_flow = []
 
     # 1. Symptom agent
-    symptom_result = await symptom_agent(symptoms)
+    symptom_result = await symptom_agent(symptoms,medical_report)
     agent_flow.append(
         {
             "agent": "Symptom Agent",
@@ -80,7 +80,7 @@ async def orchestrate(
     )
 
     # 2. Lifestyle agent
-    lifestyle_result = await lifestyle_agent(symptoms)
+    lifestyle_result = await lifestyle_agent(symptoms, medical_report)
     agent_flow.append(
         {
             "agent": "Lifestyle Agent",
@@ -220,7 +220,7 @@ async def stream_agent_updates(symptoms: str, medical_report: str) -> AsyncGener
         "type": "thought",
         "content": "Orchestrator → SymptomAgent: analyze primary symptoms.",
     }
-    symptom_result = await symptom_agent(symptoms)
+    symptom_result = await symptom_agent(symptoms, medical_report)
     yield {
         "type": "thought",
         "content": (
@@ -240,7 +240,8 @@ async def stream_agent_updates(symptoms: str, medical_report: str) -> AsyncGener
     }
 
     # 3) Lifestyle Agent – first pass
-    lifestyle_result = await lifestyle_agent(symptoms)
+    lifestyle_result = await lifestyle_agent(symptoms,medical_report)
+
     yield {
         "type": "thought",
         "content": (
@@ -305,7 +306,7 @@ async def stream_agent_updates(symptoms: str, medical_report: str) -> AsyncGener
         f"Fitness plan summary:\n{fitness_result}\n\n"
         "Adjust lifestyle guidance if any conflicts or overloads are detected."
     )
-    refined_lifestyle = await lifestyle_agent(refined_lifestyle_prompt)
+    refined_lifestyle = await lifestyle_agent(refined_lifestyle_prompt,medical_report)
     yield {
         "type": "thought",
         "content": (
