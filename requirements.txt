@@ -12,3 +12,4 @@ gunicorn
 pdfplumber          # PDF text extraction [web:585]
 pytesseract         # OCR wrapper for Tesseract [web:577]
 Pillow              
+
